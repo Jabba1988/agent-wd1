@@ -1,128 +1,170 @@
 package main
 
 import (
-	// "flag"
+	"flag"
 	"fmt"
-	"os"
+	"time"
+	// "github.com/IBM/sarama"
 	"log"
-	"encode/json"
-	"github.com/confluentinc/confluent-kafka-go/kafka"
-	"https://github.com/elastic/go-sysinfo"
-	"github.com/zcalusic/sysinfo"
+	//"os"
+	"os/exec"
+	"regexp"
+	"strings"
+
+	// "encoding/json"
+	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 )
 
-
-type CPU struct {
-	Processor       int32    `json:"processor"`
-	VendorID        string   `json:"vendor_id"`
-	CPUFamily       string   `json:"cpu_family"`
-	Model           string   `json:"model"`
-	ModelName       string   `json:"model_name"`
-	Stepping        string   `json:"stepping"`
-	Microcode       string   `json:"microcode"`
-	CPUMHz          float32  `json:"cpu_mhz"`
-	CacheSize       string   `json:"cache_size"`
-	PhysicalID      int32    `json:"physical_id"`
-	Siblings        int8     `json:"siblings"`
-	CoreID          int32    `json:"core_id"`
-	CPUCores        int32    `json:"cpu_cores"`
-	APICID          int32    `json:"apicid"`
-	InitialAPICID   int32    `json:"initial_apicid"`
-	FPU             string   `json:"fpu"`
-	FPUException    string   `json:"fpu_exception"`
-	CPUIDLevel      string   `json:"cpuid_level"`
-	WP              string   `json:"wp"`
-	Flags           []string `json:"flags"`
-	BogoMIPS        float32  `json:"bogomips"`
-	Bugs            []string `json:"bugs"`
-	CLFlushSize     uint16   `json:"clflush_size"`
-	CacheAlignment  uint16   `json:"cache_alignment"`
-	AddressSizes    []string `json:"address_sizes"`
-	PowerManagement []string `json:"power_management"`
-	TLBSize         string   `json:"tlb_size"`
+type sysinfo struct {
+	fqdn         []string
+	cpu          []string
+	memory       []string
+	swap         []string
+	mount_points []string
+	ip           []string
 }
 
-type CPU struct {
-	Vendor  string `json:"vendor,omitempty"`
-	Model   string `json:"model,omitempty"`
-	Speed   uint   `json:"speed,omitempty"`   // CPU clock rate in MHz
-	Cache   uint   `json:"cache,omitempty"`   // CPU cache size in KB
-	Cpus    uint   `json:"cpus,omitempty"`    // number of physical CPUs
-	Cores   uint   `json:"cores,omitempty"`   // number of physical CPU cores
-	Threads uint   `json:"threads,omitempty"` // number of logical (HT) CPU cores
+// type ProducerMessage struct {
+// 	Topic string // The Kafka topic for this message.
+// 	// The partitioning key for this message. Pre-existing Encoders include
+// 	// StringEncoder and ByteEncoder.
+// 	Key Encoder
+// 	// The actual message to store in Kafka. Pre-existing Encoders include
+// 	// StringEncoder and ByteEncoder.
+// 	Value Encoder
+
+// 	// The headers are key-value pairs that are transparently passed
+// 	// by Kafka between producers and consumers.
+// 	Headers []RecordHeader
+
+// 	// This field is used to hold arbitrary data you wish to include so it
+// 	// will be available when receiving on the Successes and Errors channels.
+// 	// Sarama completely ignores this field and is only to be used for
+// 	// pass-through data.
+// 	Metadata interface{}
+
+// 	// Offset is the offset of the message stored on the broker. This is only
+// 	// guaranteed to be defined if the message was successfully delivered and
+// 	// RequiredAcks is not NoResponse.
+// 	Offset int64
+// 	// Partition is the partition that the message was sent to. This is only
+// 	// guaranteed to be defined if the message was successfully delivered.
+// 	Partition int32
+// 	// Timestamp can vary in behavior depending on broker configuration, being
+// 	// in either one of the CreateTime or LogAppendTime modes (default CreateTime),
+// 	// and requiring version at least 0.10.0.
+// 	//
+// 	// When configured to CreateTime, the timestamp is specified by the producer
+// 	// either by explicitly setting this field, or when the message is added
+// 	// to a produce set.
+// 	//
+// 	// When configured to LogAppendTime, the timestamp assigned to the message
+// 	// by the broker. This is only guaranteed to be defined if the message was
+// 	// successfully delivered and RequiredAcks is not NoResponse.
+// 	Timestamp time.Time
+// 	// contains filtered or unexported fields
+// }
+
+
+
+func init() {
+
 }
 
-type Kernel struct {
-	Release      string `json:"release,omitempty"`
-	Version      string `json:"version,omitempty"`
-	Architecture string `json:"architecture,omitempty"`
-}
 
-type Memory struct {
-	Type  string `json:"type,omitempty"`
-	Speed uint   `json:"speed,omitempty"` // RAM data rate in MT/s
-	Size  uint   `json:"size,omitempty"`  // RAM size in MB
-}
 
-type OS struct {
-	Name         string `json:"name,omitempty"`
-	Vendor       string `json:"vendor,omitempty"`
-	Version      string `json:"version,omitempty"`
-	Release      string `json:"release,omitempty"`
-	Architecture string `json:"architecture,omitempty"`
-}
-
-type StorageDevice struct {
-	Name   string `json:"name,omitempty"`
-	Driver string `json:"driver,omitempty"`
-	Vendor string `json:"vendor,omitempty"`
-	Model  string `json:"model,omitempty"`
-	Serial string `json:"serial,omitempty"`
-	Size   uint   `json:"size,omitempty"` // device size in GB
-}
-
-type SysInfo struct {
-	Meta    Meta            `json:"sysinfo"`
-	Node    Node            `json:"node"`
-	OS      OS              `json:"os"`
-	Kernel  Kernel          `json:"kernel"`
-	Product Product         `json:"product"`
-	Board   Board           `json:"board"`
-	Chassis Chassis         `json:"chassis"`
-	BIOS    BIOS            `json:"bios"`
-	CPU     CPU             `json:"cpu"`
-	Memory  Memory          `json:"memory"`
-	Storage []StorageDevice `json:"storage,omitempty"`
-	Network []NetworkDevice `json:"network,omitempty"`
-}
-
-func main(){
-	process, err := sysinfo.Self()
+func get_cpu_info() []string {
+	cpu, err := exec.Command("lscpu").Output()
 	if err != nil {
-	return err
-}
-
-
-	p, err := kafka.NewProducer(&kafka.ConfigMap{
-		"bootstrap.servers": "localhost:9092",
-		"client.id": "test",
-		"acks": "all",
-	})
-	if err != nil {
-		fmt.Printf("Failed to create producer %s\n", err)
+		log.Fatal(err)
 	}
-	deliverch := make(chan kafka.Event, 10000)
-	topic := "test-topic"
-	err = p.Produce(&kafka.Message{
-		TopicPatrition: kafka.TopicPatrition{topic: &topic, Partition: kafka.PartitionAny},
-		Value:		[]byte("FOO"),
-	},
-	deliverch,
-)
-if err != nil {
-	log.Fatal(err)
+	var a string = string(cpu)
+	b := strings.Split(a, "\n")
+
+	return b
 }
-e := <-deliverch
-fmt.Printf("%+v\n", e.String())
-fmt.Printf("%+v\n", p)
+
+func get_ram() ([]string, []string) {
+	ram, err := exec.Command("free").Output()
+	if err != nil {
+		log.Fatal(err)
+	}
+	r, _ := regexp.Compile(`(?:Mem:         +\d*)`)
+	sw, _ := regexp.Compile(`(?:Swap:        +\d*)`)
+	var a = r.FindAllString(string(ram), 100)
+	var b = sw.FindAllString(string(ram), 100)
+	return a, b
+}
+func get_fqdn() []string {
+	fqdn, err := exec.Command("hostname",).Output()
+	if err != nil {
+		log.Fatal(err)
+	}
+	var a string = string(fqdn)
+	b := strings.Split(a, "\n")
+	return b
+}
+func get_mount_points() []string {
+	mp, err := exec.Command("df", "-h").Output()
+	if err != nil {
+		log.Fatal(err)
+	}
+	r, _ := regexp.Compile(`(?:/dev/mapper/[a-z,_,-]* *\d*\S *\d*\S\d*\S+\s*\d*\S\d*\S\s*\d*\S*\s*\S*)`)
+	mps := r.FindAllString(string(mp), 100)
+	var a []string = []string(mps)
+	return a
+}
+func get_ips() []string {
+	ips, err := exec.Command("ip", "a").Output()
+	if err != nil {
+		log.Fatal(err)
+	}
+	r, _ := regexp.Compile(`(?:inet\s*\d*\S\d*\S\d*\S\d*)`)
+	var a []string = r.FindAllString(string(ips), 100)
+	return a
+}
+func payloadStruct() *sysinfo {
+	s := sysinfo{cpu: get_cpu_info()}
+	s.memory, s.swap = get_ram()
+	s.mount_points = get_mount_points()
+	s.fqdn = get_fqdn()
+	s.ip = get_ips()
+	return &s
+}
+
+type TopicPartition struct {
+	Topic       *string
+	Partition   int32
+	Offset      int
+	Metadata    *string
+	Error       error
+	LeaderEpoch *int32 // LeaderEpoch or nil if not available
+}
+
+func main() {
+	var svar string 
+	flag.StringVar(&svar, "bootstrap", "localhost:9092", "kafka host with port")
+	flag.Parse()
+	config := &kafka.ConfigMap{
+		"bootstrap.servers": svar,
+	}
+	producer, err := kafka.NewProducer(config)
+	if err != nil {
+		log.Fatal(err)
+	}
+	topic := "awd"
+	for true {
+		//  value := fmt.Sprintf("message-%d", i)
+		value := []byte(fmt.Sprintf("%v", payloadStruct()))
+		err := producer.Produce(&kafka.Message{
+			TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: kafka.PartitionAny} ,
+			Value: []byte(value),
+		}, nil)
+		if err != nil {
+			log.Fatal("Failed to produce message %d: %v\n", err)	
+		} else {
+			fmt.Printf("Produced message %s  %s\n", time.Now(), value)
+		}
+		time.Sleep(10 * time.Second)
+	}
 }
